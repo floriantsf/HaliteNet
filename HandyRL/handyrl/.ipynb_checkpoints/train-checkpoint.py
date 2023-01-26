@@ -216,20 +216,21 @@ def forward_prediction(model, hidden, batch, args):
     return outputs
 
 
-def compose_losses(outputs, log_selected_policies_ships, log_selected_policies_shipyards,
-                   total_advantages_ships, total_advantages_shipyards, targets, batch, args):
+def compose_losses(outputs, log_selected_policies,
+                   total_advantages, targets, batch, args):
     """Caluculate loss value
 
     Returns:
         tuple: losses and statistic values and the number of training data
     """
-    tmasks_ships = batch['turn_mask_ships'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies_ships.size(-2), 1)
-    tmasks_shipyards = batch['turn_mask_shipyards'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies_shipyards.size(-2), 1)
+    tmasks = batch['turn_mask_ships'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies.size(-2), 1)
     omasks = batch['observation_mask']
     losses = {}
     dcnt = tmasks_ships.sum().item()
     
-    losses['p'] = (-log_selected_policies_ships * total_advantages_ships).mul(tmasks_ships).sum()+(-log_selected_policies_shipyards * total_advantages_shipyards).mul(tmasks_shipyards).sum()
+    print(log_selected_policies.shape, total_advantages.shape, (-log_selected_policies * total_advantages).shape, (-log_selected_policies * total_advantages).mul(tmasks).shape)
+    #torch.Size([64, 32, 1, 1, 441]) torch.Size([64, 32, 1, 1, 1]) torch.Size([64, 32, 1, 1, 441]) torch.Size([])
+    losses['p'] = (-log_selected_policies * total_advantages).mul(tmasks).sum()
     
     if 'value' in outputs:
         losses['v'] = ((outputs['value'] - targets['value']) ** 2).mul(omasks).sum() / 2
@@ -261,6 +262,8 @@ def compute_loss(batch, model, hidden, args):
     clip_rho_threshold, clip_c_threshold = 1.0, 1.0
     
     log_selected_b_policies_ships = torch.log(torch.clamp(batch['selected_prob_ships'], 1e-16, 1)) * emasks.unsqueeze(-1)
+    
+    #torch.Size([64, 32, 1, 1, 441]) torch.Size([64, 32, 1, 1, 441])
     log_selected_b_policies_shipyards = torch.log(torch.clamp(batch['selected_prob_shipyards'], 1e-16, 1)) * emasks.unsqueeze(-1)
     log_selected_t_policies_ships = F.log_softmax(outputs['policy_ships'], dim=-1).gather(-1, actions_ships) * emasks.unsqueeze(-1)
     log_selected_t_policies_shipyards = F.log_softmax(outputs['policy_shipyards'], dim=-1).gather(-1, actions_shipyards) * emasks.unsqueeze(-1)
@@ -269,18 +272,15 @@ def compute_loss(batch, model, hidden, args):
     log_selected_t_policies_shipyards = log_selected_t_policies_shipyards.transpose(-2, -1)
     
     # thresholds of importance sampling
-    log_rhos_ships = log_selected_t_policies_ships.detach() - log_selected_b_policies_ships
-    log_rhos_shipyards = log_selected_t_policies_shipyards.detach() - log_selected_b_policies_shipyards
-    rhos_ships = torch.exp(log_rhos_ships)
-    rhos_shipyards = torch.exp(log_rhos_shipyards)
-    clipped_rhos_ships = torch.clamp(rhos_ships, 0, clip_rho_threshold)*umasks_ships
-    clipped_rhos_shipyards = torch.clamp(rhos_shipyards, 0, clip_rho_threshold)*umasks_shipyards
+    log_rhos = ((log_selected_t_policies_ships.detach() - log_selected_b_policies_ships)*umasks_ships).sum(-1)+((log_selected_t_policies_shipyards.detach() - log_selected_b_policies_shipyards)*umasks_shipyards).sum(-1)
+    print(log_rhos.shape, umasks_ships.shape)
+    rhos = torch.exp(log_rhos)
+    clipped_rhos = torch.clamp(rhos, 0, clip_rho_threshold)
+    #torch.Size([64, 32, 1, 1, 441]) torch.Size([64, 32, 1, 1, 441])
     
-    log_selected_t_policies_ships = log_selected_t_policies_ships*umasks_ships
-    log_selected_t_policies_shipyards = log_selected_t_policies_shipyards*umasks_shipyards
-
-    cs_ships = torch.clamp(rhos_ships, 0, clip_c_threshold)
-    cs_shipyards = torch.clamp(rhos_shipyards, 0, clip_c_threshold)
+    log_selected_t_policies = (log_selected_t_policies_ships*umasks_ships).sum(-1)+(log_selected_t_policies_shipyards*umasks_shipyards).sum(-1)
+    
+    cs_ships = torch.clamp(rhos, 0, clip_c_threshold)
     outputs_nograd = {k: o.detach() for k, o in outputs.items()}
 
     if 'value' in outputs_nograd:
@@ -294,7 +294,7 @@ def compute_loss(batch, model, hidden, args):
     targets = {}
     advantages = {}
 
-    value_args = outputs_nograd.get('value', None), batch['outcome'], None, args['lambda'], 1, clipped_rhos_ships, cs_ships
+    value_args = outputs_nograd.get('value', None), batch['outcome'], None, args['lambda'], 1, clipped_rhos, cs_ships
     return_args = outputs_nograd.get('return', None), batch['return'], batch['reward'], args['lambda'], args['gamma'], clipped_rhos_ships, cs_ships
 
     targets['value'], advantages['value'] = compute_target(args['value_target'], *value_args)
@@ -305,10 +305,12 @@ def compute_loss(batch, model, hidden, args):
         _, advantages['return'] = compute_target(args['policy_target'], *return_args)
     
     # compute policy advantage
-    total_advantages_ships = clipped_rhos_ships * sum(advantages.values()).unsqueeze(-1)
-    total_advantages_shipyards = clipped_rhos_shipyards * sum(advantages.values()).unsqueeze(-1)
-    return compose_losses(outputs, log_selected_t_policies_ships, log_selected_t_policies_shipyards, 
-                          total_advantages_ships, total_advantages_shipyards, targets, batch, args)
+    #print(clipped_rhos_ships.shape, sum(advantages.values()).unsqueeze(-1).shape)
+    #torch.Size([64, 32, 1, 1, 441]) torch.Size([64, 32, 1, 1, 1])
+    total_advantages = clipped_rhos * sum(advantages.values()).unsqueeze(-1)
+    print(total_advantages.shape)
+    return compose_losses(outputs, log_selected_t_policies, 
+                          total_advantages, targets, batch, args)
 
 
 class Batcher:
