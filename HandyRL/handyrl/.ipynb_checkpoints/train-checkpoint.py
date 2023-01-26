@@ -61,8 +61,8 @@ def make_batch(episodes, args):
         obs_zeros = map_r(moments[0]['observation'][moments[0]['turn'][0]], lambda o: np.zeros_like(o))
         amask_ships_zeros = np.zeros_like(moments[0]['action_mask_ships'][moments[0]['turn'][0]])
         amask_shipyards_zeros = np.zeros_like(moments[0]['action_mask_shipyards'][moments[0]['turn'][0]])
-        umask_ships_zeros = np.zeros_like(moments[0]['unit_ships_mask'][moments[0]['turn'][0]])
-        umask_shipyards_zeros = np.zeros_like(moments[0]['unit_shipyards_mask'][moments[0]['turn'][0]])
+        umask_ships_zeros = np.zeros_like(moments[0]['unit_mask_ships'][moments[0]['turn'][0]])
+        umask_shipyards_zeros = np.zeros_like(moments[0]['unit_mask_shipyards'][moments[0]['turn'][0]])
 
         # data that is changed by training configuration
         if args['turn_based_training'] and not args['observation']:
@@ -75,11 +75,11 @@ def make_batch(episodes, args):
             prob_ships = np.array([[[replace_none(m['selected_prob_ships'][player].toarray()[0], 1.0)] for player in players] for m in moments])
             prob_shipyards = np.array([[[replace_none(m['selected_prob_shipyards'][player].toarray()[0], 1.0)] for player in players] for m in moments])
             act_ships = np.array([[replace_none(m['action_ships'][player].toarray()[0], 0) for player in players] for m in moments], dtype=np.int64)[..., np.newaxis]
-            act_ships = np.array([[replace_none(m['action_shipyards'][player].toarray()[0], 0) for player in players] for m in moments], dtype=np.int64)[..., np.newaxis]
+            act_shipyards = np.array([[replace_none(m['action_shipyards'][player].toarray()[0], 0) for player in players] for m in moments], dtype=np.int64)[..., np.newaxis]
             #(32,1,2300,1)
             #print(act.shape)
-            amask_ships = np.array([[replace_none(m['action_mask_ships'][player].toarray(), amask_zeros + 1e32) for player in players] for m in moments])
-            amask_shipyards = np.array([[replace_none(m['action_mask_shipyards'][player].toarray(), amask_zeros + 1e32) for player in players] for m in moments])
+            amask_ships = np.array([[replace_none(m['action_mask_ships'][player].toarray(), amask_ships_zeros + 1e32) for player in players] for m in moments])
+            amask_shipyards = np.array([[replace_none(m['action_mask_shipyards'][player].toarray(), amask_shipyards_zeros + 1e32) for player in players] for m in moments])
             umask_ships = np.array([[replace_none(m['unit_mask_ships'][player].toarray()[0], 0) for player in players] for m in moments])[..., np.newaxis]
             umask_shipyards = np.array([[replace_none(m['unit_mask_shipyards'][player].toarray()[0], 0) for player in players] for m in moments])[..., np.newaxis]
             
@@ -95,14 +95,14 @@ def make_batch(episodes, args):
 
         emask = np.ones((len(moments), 1, 1), dtype=np.float32)  # episode mask
         tmask_ships = np.array([[[m['selected_prob_ships'][player] is not None] for player in players] for m in moments], dtype=np.float32)
-        tmask_shipyards = np.array([[[m['selected_prob_ships'][player] is not None] for player in players] for m in moments], dtype=np.float32)
+        tmask_shipyards = np.array([[[m['selected_prob_shipyards'][player] is not None] for player in players] for m in moments], dtype=np.float32)
         omask = np.array([[[m['observation'][player] is not None] for player in players] for m in moments], dtype=np.float32)
 
         progress = np.arange(ep['start'], ep['end'], dtype=np.float32)[..., np.newaxis] / ep['total']
 
         # pad each array if step length is short
         batch_steps = args['burn_in_steps'] + args['forward_steps']
-        if len(tmask) < batch_steps:
+        if len(tmask_ships) < batch_steps:
             print("hello ?")
             pad_len_b = args['burn_in_steps'] - (ep['train_start'] - ep['start'])
             pad_len_a = batch_steps - len(tmask) - pad_len_b
@@ -160,7 +160,7 @@ def forward_prediction(model, hidden, batch, args):
     """
 
     observations = batch['observation']  # (..., B, T, P or 1, ...)
-    batch_shape = batch['action'].size()[:3]  # (B, T, P or 1)
+    batch_shape = batch['action_ships'].size()[:3]  # (B, T, P or 1)
 
     if hidden is None:
         # feed-forward neural network
@@ -199,13 +199,13 @@ def forward_prediction(model, hidden, batch, args):
     for k, o in outputs.items():
         if k == 'policy_ships':
             o = o.view(*o.size()[:3], *batch['action_mask_ships'].size()[-2:])
-            o = o.mul(batch['turn_mask'].unsqueeze(-1))
+            o = o.mul(batch['turn_mask_ships'].unsqueeze(-1))
             if o.size(2) > 1 and batch_shape[2] == 1:  # turn-alternating batch
                 o = o.sum(2, keepdim=True)  # gather turn player's policies
             outputs[k] = o - batch['action_mask_ships']
         elif k == 'policy_shipyards':
             o = o.view(*o.size()[:3], *batch['action_mask_shipyards'].size()[-2:])
-            o = o.mul(batch['turn_mask'].unsqueeze(-1))
+            o = o.mul(batch['turn_mask_shipyards'].unsqueeze(-1))
             if o.size(2) > 1 and batch_shape[2] == 1:  # turn-alternating batch
                 o = o.sum(2, keepdim=True)  # gather turn player's policies
             outputs[k] = o - batch['action_mask_shipyards']
@@ -223,12 +223,13 @@ def compose_losses(outputs, log_selected_policies_ships, log_selected_policies_s
     Returns:
         tuple: losses and statistic values and the number of training data
     """
-    tmasks = batch['turn_mask'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies.size(-2), 1)
+    tmasks_ships = batch['turn_mask_ships'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies_ships.size(-2), 1)
+    tmasks_shipyards = batch['turn_mask_shipyards'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies_shipyards.size(-2), 1)
     omasks = batch['observation_mask']
     losses = {}
-    dcnt = tmasks.sum().item()
+    dcnt = tmasks_ships.sum().item()
     
-    losses['p'] = (-log_selected_policies_ships * total_advantages_ships).mul(tmasks).sum()+(-log_selected_policies_shipyards * total_advantages_shipyards).mul(tmasks).sum()
+    losses['p'] = (-log_selected_policies_ships * total_advantages_ships).mul(tmasks_ships).sum()+(-log_selected_policies_shipyards * total_advantages_shipyards).mul(tmasks_shipyards).sum()
     
     if 'value' in outputs:
         losses['v'] = ((outputs['value'] - targets['value']) ** 2).mul(omasks).sum() / 2
