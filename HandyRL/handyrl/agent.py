@@ -15,11 +15,16 @@ class RandomAgent:
         pass
 
     def action(self, env, player, show=False):
-        legal_unit = env.legal_units(player)
-        action = np.zeros((env.num_units(),),dtype=np.int32)
-        for i in legal_unit:
-            action[i] = random.choice(env.legal_actions(player, i))
-        return action
+        legal_unit_ships = env.legal_units_ships(player)
+        legal_unit_shipyards = env.legal_units_shipyards(player)
+        
+        action_ships = np.zeros((env.num_units(),),dtype=np.int32)
+        action_shipyards = np.zeros((env.num_units(),),dtype=np.int32)
+        for i in legal_unit_ships:
+            action_ships[i] = random.choice(env.legal_actions_ships(player, i))
+        for i in legal_unit_shipyards:
+            action_shipyards[i] = random.choice(env.legal_actions_shipyards(player, i))
+        return {'ships':action_ships,'shipyards': action_shipyards}
 
     def observe(self, env, player, show=False):
         return [0.0]
@@ -66,24 +71,33 @@ class Agent:
     def action(self, env, player, show=False):
         obs = env.observation(player)
         outputs = self.plan(obs)
-        p = outputs['policy'].reshape(env.num_units(), -1)
+        p_ships = outputs['policy_ships'].reshape(env.num_units(), -1)
+        p_shipyards = outputs['policy_shipyards'].reshape(env.num_units(), -1)
         v = outputs.get('value', None)
         
-        mask = env.action_mask(player)
-        legal_unit = env.legal_units(player)
-        p = p - mask * 1e32
+        mask_ships = env.action_mask_ships(player)
+        mask_shipyards = env.action_mask_shipyards(player)
+        legal_unit_ships = env.legal_units_ships(player)
+        legal_unit_shipyards = env.legal_units_shipyards(player)
+        p_ships = p_ships - mask_ships * 1e32
+        p_shipyards = p_shipyards - mask_shipyards * 1e32
         
-        action = np.zeros((p.shape[0],),dtype=np.int32)
+        action_ships = np.zeros((p_ships.shape[0],),dtype=np.int32)
+        action_shipyards = np.zeros((p_shipyards.shape[0],),dtype=np.int32)
         #print(legal_unit)
-        for i in legal_unit:
-            action[i] = sorted([(a, p[i][a]) for a, s in enumerate(p[i])], key=lambda x: -x[1])[0][0]
+        for i in legal_unit_ships:
+            action_ships[i] = sorted([(a, p_ships[i][a]) for a, s in enumerate(p_ships[i])], key=lambda x: -x[1])[0][0]
+            #print(i, action[i], p[i])
+        
+        for i in legal_unit_shipyards:
+            action_shipyards[i] = sorted([(a, p_shipyards[i][a]) for a, s in enumerate(p_shipyards[i])], key=lambda x: -x[1])[0][0]
             #print(i, action[i], p[i])
 
         if show:
-            print_outputs(env, softmax(p), v)
+            print_outputs(env, softmax(p_ships), v)
 
         if self.temperature == 0:
-            return action
+            return {'ships':action_ships,'shipyards': action_shipyards}
             #return [sorted([(a, p_[a]) for a, s in enumerate(p_)], key=lambda x: -x[1])[0][0] for p_ in p]
         else:
             print("gneu")

@@ -264,8 +264,8 @@ def compute_loss(batch, model, hidden, args):
     log_selected_t_policies_ships = F.log_softmax(outputs['policy_ships'], dim=-1).gather(-1, actions_ships) * emasks.unsqueeze(-1)
     log_selected_t_policies_shipyards = F.log_softmax(outputs['policy_shipyards'], dim=-1).gather(-1, actions_shipyards) * emasks.unsqueeze(-1)
     
-    log_selected_t_policies_ships = log_selected_t_policies_ships.transpose(-2, -1)`
-    log_selected_t_policies_shipyards = log_selected_t_policies_shipyards.transpose(-2, -1)`
+    log_selected_t_policies_ships = log_selected_t_policies_ships.transpose(-2, -1)
+    log_selected_t_policies_shipyards = log_selected_t_policies_shipyards.transpose(-2, -1)
     
     # thresholds of importance sampling
     log_rhos_ships = log_selected_t_policies_ships.detach() - log_selected_b_policies_ships

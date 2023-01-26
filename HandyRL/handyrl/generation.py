@@ -83,7 +83,7 @@ class Generator:
                         action_shipyards[i] = random.choices(np.arange(p_shipyards.shape[-1]), weights=p_shipyards[i])[0]
                         unit_mask_shipyards[i] = 1
                     moment['selected_prob_ships'][player] = scipy.sparse.csr_matrix(np.take_along_axis(sparse_p_ships, np.array(action_ships)[:, None], -1)[:, 0])
-                    moment['selected_prob_shipyards'][player] = scipy.sparse.csr_matrix(np.take_along_axis(sparse_p_shipyards, np.array(action_ships)[:, None], -1)[:, 0])
+                    moment['selected_prob_shipyards'][player] = scipy.sparse.csr_matrix(np.take_along_axis(sparse_p_shipyards, np.array(action_shipyards)[:, None], -1)[:, 0])
                     moment['action_mask_ships'][player] = scipy.sparse.csr_matrix(action_mask_ships)
                     moment['action_mask_shipyards'][player] = scipy.sparse.csr_matrix(action_mask_shipyards)
                     moment['action_ships'][player] = scipy.sparse.csr_matrix(action_ships)
@@ -93,9 +93,9 @@ class Generator:
             
             err = self.env.step({
                 p: {
-                    'ships':moment['action_ships'][p].toarray()[0] for p in moment['action_ships'],
-                    'shipyards':moment['action_shipyards'][p].toarray()[0] for p in moment['action_shipyards']
-                }
+                    'ships':moment['action_ships'][p].toarray()[0],
+                    'shipyards':moment['action_shipyards'][p].toarray()[0]
+                } for p in moment['action_ships']
             })
             if err:
                 return None

@@ -225,9 +225,13 @@ class Environment(BaseEnvironment):
             
         return np.array(lu)
             
-    def legal_actions(self, player, pos=None):
+    def legal_actions_ships(self, player, pos=None):
         # return legal action list
-        return list(range(8))
+        return list(range(6))
+    
+    def legal_actions_shipyards(self, player, pos=None):
+        # return legal action list
+        return list(range(2))
     
     def terminal(self):
         # check whether terminal state or not
