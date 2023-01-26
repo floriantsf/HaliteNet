@@ -59,8 +59,10 @@ def make_batch(episodes, args):
         
         # template for padding
         obs_zeros = map_r(moments[0]['observation'][moments[0]['turn'][0]], lambda o: np.zeros_like(o))
-        amask_zeros = np.zeros_like(moments[0]['action_mask'][moments[0]['turn'][0]])
-        umask_zeros = np.zeros_like(moments[0]['unit_mask'][moments[0]['turn'][0]])
+        amask_ships_zeros = np.zeros_like(moments[0]['action_mask_ships'][moments[0]['turn'][0]])
+        amask_shipyards_zeros = np.zeros_like(moments[0]['action_mask_shipyards'][moments[0]['turn'][0]])
+        umask_ships_zeros = np.zeros_like(moments[0]['unit_ships_mask'][moments[0]['turn'][0]])
+        umask_shipyards_zeros = np.zeros_like(moments[0]['unit_shipyards_mask'][moments[0]['turn'][0]])
 
         # data that is changed by training configuration
         if args['turn_based_training'] and not args['observation']:
@@ -70,12 +72,16 @@ def make_batch(episodes, args):
             amask = np.array([[m['action_mask'][m['turn'][0]]] for m in moments])
         else:
             obs = [[replace_none(m['observation'][player], obs_zeros) for player in players] for m in moments]
-            prob = np.array([[[replace_none(m['selected_prob'][player].toarray()[0], 1.0)] for player in players] for m in moments])
-            act = np.array([[replace_none(m['action'][player].toarray()[0], 0) for player in players] for m in moments], dtype=np.int64)[..., np.newaxis]
+            prob_ships = np.array([[[replace_none(m['selected_prob_ships'][player].toarray()[0], 1.0)] for player in players] for m in moments])
+            prob_shipyards = np.array([[[replace_none(m['selected_prob_shipyards'][player].toarray()[0], 1.0)] for player in players] for m in moments])
+            act_ships = np.array([[replace_none(m['action_ships'][player].toarray()[0], 0) for player in players] for m in moments], dtype=np.int64)[..., np.newaxis]
+            act_ships = np.array([[replace_none(m['action_shipyards'][player].toarray()[0], 0) for player in players] for m in moments], dtype=np.int64)[..., np.newaxis]
             #(32,1,2300,1)
             #print(act.shape)
-            amask = np.array([[replace_none(m['action_mask'][player].toarray(), amask_zeros + 1e32) for player in players] for m in moments])
-            umask = np.array([[replace_none(m['unit_mask'][player].toarray()[0], 0) for player in players] for m in moments])[..., np.newaxis]
+            amask_ships = np.array([[replace_none(m['action_mask_ships'][player].toarray(), amask_zeros + 1e32) for player in players] for m in moments])
+            amask_shipyards = np.array([[replace_none(m['action_mask_shipyards'][player].toarray(), amask_zeros + 1e32) for player in players] for m in moments])
+            umask_ships = np.array([[replace_none(m['unit_mask_ships'][player].toarray()[0], 0) for player in players] for m in moments])[..., np.newaxis]
+            umask_shipyards = np.array([[replace_none(m['unit_mask_shipyards'][player].toarray()[0], 0) for player in players] for m in moments])[..., np.newaxis]
             
         # reshape observation
         obs = rotate(rotate(obs))  # (T, P, ..., ...) -> (P, ..., T, ...) -> (..., T, P, ...)
@@ -88,7 +94,8 @@ def make_batch(episodes, args):
         oc = np.array([ep['outcome'][player] for player in players], dtype=np.float32).reshape(1, len(players), -1)
 
         emask = np.ones((len(moments), 1, 1), dtype=np.float32)  # episode mask
-        tmask = np.array([[[m['selected_prob'][player] is not None] for player in players] for m in moments], dtype=np.float32)
+        tmask_ships = np.array([[[m['selected_prob_ships'][player] is not None] for player in players] for m in moments], dtype=np.float32)
+        tmask_shipyards = np.array([[[m['selected_prob_ships'][player] is not None] for player in players] for m in moments], dtype=np.float32)
         omask = np.array([[[m['observation'][player] is not None] for player in players] for m in moments], dtype=np.float32)
 
         progress = np.arange(ep['start'], ep['end'], dtype=np.float32)[..., np.newaxis] / ep['total']
@@ -112,20 +119,30 @@ def make_batch(episodes, args):
             progress = np.pad(progress, [(pad_len_b, pad_len_a), (0, 0)], 'constant', constant_values=1)
 
         obss.append(obs)
-        datum.append((prob, v, act, oc, rew, ret, emask, tmask, omask, amask, umask, progress))
+        datum.append((prob_ships, prob_shipyards, v, act_ships, act_shipyards, 
+                      oc, rew, ret, emask,
+                      tmask_ships, tmask_shipyards, omask, amask_ships, amask_shipyards, 
+                      umask_ships, umask_shipyards, progress))
 
     obs = to_torch(bimap_r(obs_zeros, rotate(obss), lambda _, o: np.array(o)))
-    prob, v, act, oc, rew, ret, emask, tmask, omask, amask, umask, progress = [to_torch(np.array(val)) for val in zip(*datum)]
+    prob_ships, prob_shipyards, v, act_ships, act_shipyards, oc, rew, ret, emask, tmask_ships, tmask_shipyards, omask, amask_ships, amask_shipyards, umask_ships, umask_shipyards, progress = [to_torch(np.array(val)) for val in zip(*datum)]
     return {
         'observation': obs,
-        'selected_prob': prob,
+        'selected_prob_ships': prob_ships,
+        'selected_prob_shipyards': prob_shipyards,
         'value': v,
-        'action': act, 'outcome': oc,
+        'action_ships': act_ships, 
+        'action_shipyards': act_shipyards, 
+        'outcome': oc,
         'reward': rew, 'return': ret,
         'episode_mask': emask,
-        'turn_mask': tmask, 'observation_mask': omask,
-        'action_mask': amask,
-        'unit_mask': umask,
+        'turn_mask_ships': tmask_ships, 
+        'turn_mask_shipyards': tmask_shipyards, 
+        'observation_mask': omask,
+        'action_mask_ships': amask_ships,
+        'action_mask_shipyards': amask_shipyards,
+        'unit_mask_ships': umask_ships,
+        'unit_mask_shipyards': umask_shipyards,
         'progress': progress,
     }
 
@@ -180,12 +197,18 @@ def forward_prediction(model, hidden, batch, args):
         outputs = {k: torch.stack(o, dim=1) for k, o in outputs.items() if o[0] is not None}
 
     for k, o in outputs.items():
-        if k == 'policy':
-            o = o.view(*o.size()[:3], *batch['action_mask'].size()[-2:])
+        if k == 'policy_ships':
+            o = o.view(*o.size()[:3], *batch['action_mask_ships'].size()[-2:])
             o = o.mul(batch['turn_mask'].unsqueeze(-1))
             if o.size(2) > 1 and batch_shape[2] == 1:  # turn-alternating batch
                 o = o.sum(2, keepdim=True)  # gather turn player's policies
-            outputs[k] = o - batch['action_mask']
+            outputs[k] = o - batch['action_mask_ships']
+        elif k == 'policy_shipyards':
+            o = o.view(*o.size()[:3], *batch['action_mask_shipyards'].size()[-2:])
+            o = o.mul(batch['turn_mask'].unsqueeze(-1))
+            if o.size(2) > 1 and batch_shape[2] == 1:  # turn-alternating batch
+                o = o.sum(2, keepdim=True)  # gather turn player's policies
+            outputs[k] = o - batch['action_mask_shipyards']
         else:
             # mask valid target values and cumulative rewards
             outputs[k] = o.mul(batch['observation_mask'])
@@ -193,7 +216,8 @@ def forward_prediction(model, hidden, batch, args):
     return outputs
 
 
-def compose_losses(outputs, log_selected_policies, total_advantages, targets, batch, args):
+def compose_losses(outputs, log_selected_policies_ships, log_selected_policies_shipyards,
+                   total_advantages_ships, total_advantages_shipyards, targets, batch, args):
     """Caluculate loss value
 
     Returns:
@@ -204,7 +228,8 @@ def compose_losses(outputs, log_selected_policies, total_advantages, targets, ba
     losses = {}
     dcnt = tmasks.sum().item()
     
-    losses['p'] = (-log_selected_policies * total_advantages).mul(tmasks).sum()
+    losses['p'] = (-log_selected_policies_ships * total_advantages_ships).mul(tmasks).sum()+(-log_selected_policies_shipyards * total_advantages_shipyards).mul(tmasks).sum()
+    
     if 'value' in outputs:
         losses['v'] = ((outputs['value'] - targets['value']) ** 2).mul(omasks).sum() / 2
     if 'return' in outputs:
@@ -227,23 +252,34 @@ def compute_loss(batch, model, hidden, args):
         batch = map_r(batch, lambda v: v[:, args['burn_in_steps']:] if v.size(1) > 1 else v)
         outputs = map_r(outputs, lambda v: v[:, args['burn_in_steps']:])
 
-    actions = batch['action']
+    actions_ships = batch['action_ships']
+    actions_shipyards = batch['action_shipyards']
     emasks = batch['episode_mask']
-    umasks = batch['unit_mask'].transpose(-2, -1)
+    umasks_ships = batch['unit_mask_ships'].transpose(-2, -1)
+    umasks_shipyards = batch['unit_mask_shipyards'].transpose(-2, -1)
     clip_rho_threshold, clip_c_threshold = 1.0, 1.0
     
-    log_selected_b_policies = torch.log(torch.clamp(batch['selected_prob'], 1e-16, 1)) * emasks.unsqueeze(-1)
-    log_selected_t_policies = F.log_softmax(outputs['policy'], dim=-1).gather(-1, actions) * emasks.unsqueeze(-1)
+    log_selected_b_policies_ships = torch.log(torch.clamp(batch['selected_prob_ships'], 1e-16, 1)) * emasks.unsqueeze(-1)
+    log_selected_b_policies_shipyards = torch.log(torch.clamp(batch['selected_prob_shipyards'], 1e-16, 1)) * emasks.unsqueeze(-1)
+    log_selected_t_policies_ships = F.log_softmax(outputs['policy_ships'], dim=-1).gather(-1, actions_ships) * emasks.unsqueeze(-1)
+    log_selected_t_policies_shipyards = F.log_softmax(outputs['policy_shipyards'], dim=-1).gather(-1, actions_shipyards) * emasks.unsqueeze(-1)
     
-    log_selected_t_policies = log_selected_t_policies.transpose(-2, -1)
+    log_selected_t_policies_ships = log_selected_t_policies_ships.transpose(-2, -1)`
+    log_selected_t_policies_shipyards = log_selected_t_policies_shipyards.transpose(-2, -1)`
     
     # thresholds of importance sampling
-    log_rhos = log_selected_t_policies.detach() - log_selected_b_policies
-    rhos = torch.exp(log_rhos)
-    clipped_rhos = torch.clamp(rhos, 0, clip_rho_threshold)*umasks
-    log_selected_t_policies = log_selected_t_policies*umasks
+    log_rhos_ships = log_selected_t_policies_ships.detach() - log_selected_b_policies_ships
+    log_rhos_shipyards = log_selected_t_policies_shipyards.detach() - log_selected_b_policies_shipyards
+    rhos_ships = torch.exp(log_rhos_ships)
+    rhos_shipyards = torch.exp(log_rhos_shipyards)
+    clipped_rhos_ships = torch.clamp(rhos_ships, 0, clip_rho_threshold)*umasks_ships
+    clipped_rhos_shipyards = torch.clamp(rhos_shipyards, 0, clip_rho_threshold)*umasks_shipyards
+    
+    log_selected_t_policies_ships = log_selected_t_policies_ships*umasks_ships
+    log_selected_t_policies_shipyards = log_selected_t_policies_shipyards*umasks_shipyards
 
-    cs = torch.clamp(rhos, 0, clip_c_threshold)
+    cs_ships = torch.clamp(rhos_ships, 0, clip_c_threshold)
+    cs_shipyards = torch.clamp(rhos_shipyards, 0, clip_c_threshold)
     outputs_nograd = {k: o.detach() for k, o in outputs.items()}
 
     if 'value' in outputs_nograd:
@@ -257,8 +293,8 @@ def compute_loss(batch, model, hidden, args):
     targets = {}
     advantages = {}
 
-    value_args = outputs_nograd.get('value', None), batch['outcome'], None, args['lambda'], 1, clipped_rhos, cs
-    return_args = outputs_nograd.get('return', None), batch['return'], batch['reward'], args['lambda'], args['gamma'], clipped_rhos, cs
+    value_args = outputs_nograd.get('value', None), batch['outcome'], None, args['lambda'], 1, clipped_rhos_ships, cs_ships
+    return_args = outputs_nograd.get('return', None), batch['return'], batch['reward'], args['lambda'], args['gamma'], clipped_rhos_ships, cs_ships
 
     targets['value'], advantages['value'] = compute_target(args['value_target'], *value_args)
     targets['return'], advantages['return'] = compute_target(args['value_target'], *return_args)
@@ -268,8 +304,10 @@ def compute_loss(batch, model, hidden, args):
         _, advantages['return'] = compute_target(args['policy_target'], *return_args)
     
     # compute policy advantage
-    total_advantages = clipped_rhos * sum(advantages.values()).unsqueeze(-1)
-    return compose_losses(outputs, log_selected_t_policies, total_advantages, targets, batch, args)
+    total_advantages_ships = clipped_rhos_ships * sum(advantages.values()).unsqueeze(-1)
+    total_advantages_shipyards = clipped_rhos_shipyards * sum(advantages.values()).unsqueeze(-1)
+    return compose_losses(outputs, log_selected_t_policies_ships, log_selected_t_policies_shipyards, 
+                          total_advantages_ships, total_advantages_shipyards, targets, batch, args)
 
 
 class Batcher:

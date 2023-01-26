@@ -93,8 +93,8 @@ class Generator:
             
             err = self.env.step({
                 p: {
-                    'ships':moment['action_ships'][p].toarray()[0] for p in moment['action'],
-                    'shipyards':moment['action_shipyards'][p].toarray()[0] for p in moment['action']
+                    'ships':moment['action_ships'][p].toarray()[0] for p in moment['action_ships'],
+                    'shipyards':moment['action_shipyards'][p].toarray()[0] for p in moment['action_shipyards']
                 }
             })
             if err:

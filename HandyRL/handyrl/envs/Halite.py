@@ -52,9 +52,10 @@ class HaliteNet(nn.Module):
         #shipyards_logits = shipyards_p.reshape(-1,2,21*21)
         #action = torch.cat([ships_logits, shipyards_logits], 1)
         
-        p = torch.flatten(torch.cat([ships_p,shipyards_p], 1).transpose(-3,-2).transpose(-2,-1),1)
+        p_ships = torch.flatten(ships_p.transpose(-3,-2).transpose(-2,-1),1)
+        p_shipyards = torch.flatten(shipyards_p.transpose(-3,-2).transpose(-2,-1),1)
    
-        return {'policy': p, 'value': v}
+        return {'policy_ships': p_ships, 'policy_shipyards': p_shipyards, 'value': v}
 
 class Environment(BaseEnvironment):
     NUM_AGENTS = 2
@@ -127,14 +128,14 @@ class Environment(BaseEnvironment):
                                raw_configuration=self.env.configuration)
         
         for sy in previous_board.current_player.shipyards:
-            a_id = 21*21 + sy.position.x*21+sy.position.y
-            if actions.get(0, None)[a_id]:
+            a_id = sy.position.x*21+sy.position.y
+            if actions.get(0, None)['shipyards'][a_id]:
                 sy.next_action = ShipyardAction.SPAWN
 
         for s in previous_board.current_player.ships:
             a_id = s.position.x*21+s.position.y
             
-            action = actions.get(0, None)[a_id]
+            action = actions.get(0, None)['ships'][a_id]
             if action and action != 5:
                 action = ShipAction.moves()[action-1]
                 s.next_action = action
@@ -143,15 +144,15 @@ class Environment(BaseEnvironment):
         
         for i,o in enumerate(previous_board.opponents):
             for sy in o.shipyards:
-                a_id = 21*21 + sy.position.x*21+sy.position.y
-                if actions.get(i+1, None)[a_id]:
+                a_id = sy.position.x*21+sy.position.y
+                if actions.get(i+1, None)['shipyards'][a_id]:
                     sy.next_action = ShipyardAction.SPAWN
                 
         for i,o in enumerate(previous_board.opponents):
             for s in o.ships:
                 a_id = s.position.x*21+s.position.y
 
-                action = actions.get(i+1, None)[a_id]
+                action = actions.get(i+1, None)['ships'][a_id]
                 if action and action != 5:
                     action = ShipAction.moves()[action-1]
                     s.next_action = action
@@ -186,14 +187,41 @@ class Environment(BaseEnvironment):
     def num_units(self):
         return self.env.configuration.size*self.env.configuration.size
     
-    def action_mask(self, player):
-        return np.zeros((self.env.configuration.size*self.env.configuration.size,8))
+    def action_mask_ships(self, player):
+        return np.zeros((self.env.configuration.size*self.env.configuration.size,6))
     
-    def legal_units(self, player):
+    def action_mask_shipyards(self, player):
+        return np.zeros((self.env.configuration.size*self.env.configuration.size,2))
+    
+    def legal_units_ships(self, player):
         lu = []
         game_state = self.obs_list[-1][0].observation
-        for _, unit in game_state.players[player][-1].items():
-            lu.append(unit[0])
+        board = Board(raw_observation=game_state,\
+                      raw_configuration=self.env.configuration)
+        
+        if player:
+            current_player = board.opponents[0]
+        else:
+            current_player = board.current_player
+            
+        for s in current_player.ships:
+            lu.append(s._observation[0])
+            
+        return np.array(lu)
+    
+    def legal_units_shipyards(self, player):
+        lu = []
+        game_state = self.obs_list[-1][0].observation
+        board = Board(raw_observation=game_state,\
+                      raw_configuration=self.env.configuration)
+        
+        if player:
+            current_player = board.opponents[0]
+        else:
+            current_player = board.current_player
+            
+        for sy in current_player.shipyards:
+            lu.append(sy._observation)
             
         return np.array(lu)
             
