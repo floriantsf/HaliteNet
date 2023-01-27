@@ -103,27 +103,33 @@ def make_batch(episodes, args):
         # pad each array if step length is short
         batch_steps = args['burn_in_steps'] + args['forward_steps']
         if len(tmask_ships) < batch_steps:
-            print("hello ?")
             pad_len_b = args['burn_in_steps'] - (ep['train_start'] - ep['start'])
-            pad_len_a = batch_steps - len(tmask) - pad_len_b
+            pad_len_a = batch_steps - len(tmask_ships) - pad_len_b
             obs = map_r(obs, lambda o: np.pad(o, [(pad_len_b, pad_len_a)] + [(0, 0)] * (len(o.shape) - 1), 'constant', constant_values=0))
-            prob = np.pad(prob, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1)
+            prob_ships = np.pad(prob_ships, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1)
+            prob_shipyards = np.pad(prob_shipyards, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1)
+
             v = np.concatenate([np.pad(v, [(pad_len_b, 0), (0, 0), (0, 0)], 'constant', constant_values=0), np.tile(oc, [pad_len_a, 1, 1])])
-            act = np.pad(act, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=0)
+            act_ships = np.pad(act_ships, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=0)
+            act_shipyards = np.pad(act_shipyards, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=0)
             rew = np.pad(rew, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
             ret = np.pad(ret, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
             emask = np.pad(emask, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
-            tmask = np.pad(tmask, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
+            tmask_ships = np.pad(tmask_ships, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
+            tmask_shipyards = np.pad(tmask_shipyards, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
             omask = np.pad(omask, [(pad_len_b, pad_len_a), (0, 0), (0, 0)], 'constant', constant_values=0)
-            amask = np.pad(amask, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1e32)
+            amask_ships = np.pad(amask_ships, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1e32)
+            amask_shipyards = np.pad(amask_shipyards, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1e32)
+            umask_ships = np.pad(umask_ships, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1e32)
+            umask_shipyards = np.pad(umask_shipyards, [(pad_len_b, pad_len_a), (0, 0), (0, 0), (0, 0)], 'constant', constant_values=1e32)
             progress = np.pad(progress, [(pad_len_b, pad_len_a), (0, 0)], 'constant', constant_values=1)
-
         obss.append(obs)
+        
         datum.append((prob_ships, prob_shipyards, v, act_ships, act_shipyards, 
                       oc, rew, ret, emask,
                       tmask_ships, tmask_shipyards, omask, amask_ships, amask_shipyards, 
                       umask_ships, umask_shipyards, progress))
-
+    #umask_ships, umask_shipyards
     obs = to_torch(bimap_r(obs_zeros, rotate(obss), lambda _, o: np.array(o)))
     prob_ships, prob_shipyards, v, act_ships, act_shipyards, oc, rew, ret, emask, tmask_ships, tmask_shipyards, omask, amask_ships, amask_shipyards, umask_ships, umask_shipyards, progress = [to_torch(np.array(val)) for val in zip(*datum)]
     return {
