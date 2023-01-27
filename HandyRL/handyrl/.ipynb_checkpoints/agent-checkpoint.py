@@ -79,19 +79,16 @@ class Agent:
         mask_shipyards = env.action_mask_shipyards(player)
         legal_unit_ships = env.legal_units_ships(player)
         legal_unit_shipyards = env.legal_units_shipyards(player)
-        p_ships = p_ships - mask_ships * 1e32
-        p_shipyards = p_shipyards - mask_shipyards * 1e32
+        p_ships = softmax(p_ships - mask_ships * 1e32)
+        p_shipyards = softmax(p_shipyards - mask_shipyards * 1e32)
         
         action_ships = np.zeros((p_ships.shape[0],),dtype=np.int32)
         action_shipyards = np.zeros((p_shipyards.shape[0],),dtype=np.int32)
-        #print(legal_unit)
         for i in legal_unit_ships:
-            action_ships[i] = sorted([(a, p_ships[i][a]) for a, s in enumerate(p_ships[i])], key=lambda x: -x[1])[0][0]
-            #print(i, action[i], p[i])
-        
+            action_ships[i] = random.choices(np.arange(p_ships.shape[-1]), weights=p_ships[i])[0]
         for i in legal_unit_shipyards:
-            action_shipyards[i] = sorted([(a, p_shipyards[i][a]) for a, s in enumerate(p_shipyards[i])], key=lambda x: -x[1])[0][0]
-            #print(i, action[i], p[i])
+            action_shipyards[i] = random.choices(np.arange(p_shipyards.shape[-1]), weights=p_shipyards[i])[0]
+        #print(legal_unit)
 
         if show:
             print_outputs(env, softmax(p_ships), v)

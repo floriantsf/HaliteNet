@@ -225,7 +225,7 @@ def compose_losses(outputs, log_selected_policies,
     """
     tmasks = batch['turn_mask_ships'].unsqueeze(-1).repeat(1, 1, 1, log_selected_policies.size(-2), 1)
     omasks = batch['observation_mask']
-    losses = {}
+    losses = {} 
     dcnt = tmasks.sum().item()
     
     #print(log_selected_policies.shape, total_advantages.shape, (-log_selected_policies * total_advantages).shape, (-log_selected_policies * total_advantages).mul(tmasks).shape)
